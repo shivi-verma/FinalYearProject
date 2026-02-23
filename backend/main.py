@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -5,7 +6,10 @@ from typing import List, Optional
 from backend.db.database import engine, Base
 from backend.routers import auth, chat, documents, admin, google_auth
 from backend.services.ollama_service import ollama_service
-from backend.services.rag_service import rag_service
+# ── CHANGE THIS LINE ──────────────────────────────────────────────────────
+from backend.services.rag_manager import rag_manager  # ← CHANGED from rag_service
+# from backend.services.rag_service import rag_service  # ← REMOVE/COMMENT OUT
+# ──────────────────────────────────────────────────────────────────────────
 import os
 import uvicorn
 
@@ -15,12 +19,31 @@ Base.metadata.create_all(bind=engine)
 # ---------- DIRECTORIES ----------
 os.makedirs("uploads", exist_ok=True)
 os.makedirs("vectordb", exist_ok=True)
+os.makedirs("shareduploads", exist_ok=True)  # ← NEW: for shared documents
+
+# ---------- LIFESPAN EVENTS (replaces @app.on_event) ----------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup and shutdown events"""
+    # Startup
+    print("🚀 Starting Code Assistant...")
+    await ollama_service.check_connection()
+    await rag_manager.initialize()  # ← CHANGED from rag_service
+    print("✅ Ready!")
+    
+    yield
+    
+    # Shutdown
+    print("🛑 Shutting down...")
+    await rag_manager.close()  # ← NEW: close HTTP client to shared server
+    print("✅ Cleanup complete")
 
 # ---------- APP INITIALIZATION ----------
 app = FastAPI(
     title="Enterprise Code Assistant",
     description="AI Code Assistant with RAG",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan  # ← NEW: attach lifespan handler
 )
 
 # ---------- CORS ----------
@@ -60,14 +83,6 @@ app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 app.include_router(documents.router, prefix="/api/documents", tags=["Documents"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 
-# ---------- STARTUP EVENTS ----------
-@app.on_event("startup")
-async def startup():
-    print("🚀 Starting Code Assistant...")
-    await ollama_service.check_connection()
-    await rag_service.initialize()
-    print("✅ Ready!")
-
 # ---------- ROOT & HEALTH ----------
 @app.get("/", response_model=HealthResponse)
 async def root():
@@ -78,8 +93,8 @@ async def root():
 async def health_check():
     """Detailed health check"""
     return {
-        "status": "healthy" if rag_service.is_initialized and ollama_service.is_connected else "starting",
-        "message": "All systems operational" if rag_service.is_initialized else "Initializing RAG or Ollama"
+        "status": "healthy" if rag_manager.local.is_initialized and ollama_service.is_connected else "starting",
+        "message": "All systems operational" if rag_manager.local.is_initialized else "Initializing RAG or Ollama"
     }
 
 # ---------- MOCK API ENDPOINTS (for testing / placeholder) ----------

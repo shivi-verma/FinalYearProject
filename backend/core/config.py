@@ -41,3 +41,5 @@ class Settings:
     MAX_UPLOAD_SIZE_MB = MAX_UPLOAD_SIZE_MB
 
 settings = Settings()
+
+SHARED_UPLOAD_DIR = os.path.join(os.getcwd(), "shareduploads")

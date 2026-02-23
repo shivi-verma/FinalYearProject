@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Send, Code, FileText, Check, X, RefreshCw, Download, Mic, MicOff } from 'lucide-react'
+import { Send, Code, FileText, Check, X, RefreshCw, Download, Mic, MicOff, Database, Globe, User } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
@@ -10,6 +10,9 @@ function ChatPage() {
   const [loading, setLoading] = useState(false)
   const [sessionId, setSessionId] = useState(null)
   const [loadingHistory, setLoadingHistory] = useState(false)
+
+  // Database selection state
+  const [selectedDb, setSelectedDb] = useState('local')  // 'local' or 'shared'
 
   // Editing states
   const [editingIndex, setEditingIndex] = useState(null)
@@ -34,7 +37,6 @@ function ChatPage() {
 
   // Initialize Speech Recognition
   useEffect(() => {
-    // Check if browser supports Speech Recognition
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
     
     if (SpeechRecognition) {
@@ -42,7 +44,7 @@ function ChatPage() {
       const recognition = new SpeechRecognition()
       
       recognition.continuous = false
-      recognition.interimResults = false  // Changed to false to prevent duplicates
+      recognition.interimResults = false
       recognition.lang = 'en-US'
 
       recognition.onstart = () => {
@@ -52,15 +54,11 @@ function ChatPage() {
 
       recognition.onresult = (event) => {
         let finalTranscript = ''
-
-        // Process all results
         for (let i = 0; i < event.results.length; i++) {
           if (event.results[i].isFinal) {
             finalTranscript += event.results[i][0].transcript + ' '
           }
         }
-
-        // Only update input with final transcript
         if (finalTranscript.trim()) {
           setInput(prev => prev + finalTranscript)
         }
@@ -69,7 +67,6 @@ function ChatPage() {
       recognition.onerror = (event) => {
         console.error('❌ Speech recognition error:', event.error)
         setIsListening(false)
-        
         if (event.error === 'not-allowed') {
           alert('Microphone access denied. Please allow microphone access in your browser settings.')
         }
@@ -81,8 +78,6 @@ function ChatPage() {
       }
 
       recognitionRef.current = recognition
-    } else {
-      console.warn('⚠️ Speech Recognition not supported in this browser')
     }
 
     return () => {
@@ -92,13 +87,11 @@ function ChatPage() {
     }
   }, [])
 
-  // Toggle voice input
   const toggleVoiceInput = () => {
     if (!speechSupported) {
       alert('Speech recognition is not supported in your browser. Please use Chrome, Edge, or Safari.')
       return
     }
-
     if (isListening) {
       recognitionRef.current.stop()
     } else {
@@ -110,12 +103,10 @@ function ChatPage() {
     }
   }
 
-  // Monitor sessionId changes from localStorage (when sidebar switches chats)
+  // Monitor sessionId changes
   useEffect(() => {
     const checkSessionChange = () => {
       const savedSessionId = localStorage.getItem('lastSessionId')
-      
-      // If session changed from outside (sidebar click)
       if (savedSessionId !== previousSessionRef.current) {
         previousSessionRef.current = savedSessionId
         setSessionId(savedSessionId)
@@ -124,24 +115,18 @@ function ChatPage() {
         setEditingText("")
       }
     }
-
-    // Check immediately
     checkSessionChange()
-
-    // Also check periodically for changes
     const interval = setInterval(checkSessionChange, 500)
-
     return () => clearInterval(interval)
   }, [])
 
-  // LOAD CHAT HISTORY when session changes
+  // Load chat history
   useEffect(() => {
     const loadChatHistory = async () => {
       if (!sessionId) {
         setMessages([])
         return
       }
-
       setLoadingHistory(true)
       try {
         const response = await fetch(
@@ -152,14 +137,14 @@ function ChatPage() {
             }
           }
         )
-
         if (response.ok) {
           const data = await response.json()
           const loadedMessages = data.map(msg => ({
             role: msg.role,
             content: msg.content,
             sources: msg.sources || [],
-            responseTime: msg.response_time_ms
+            responseTime: msg.response_time_ms,
+            dbScope: msg.db_scope || 'local'  // Track which DB was used
           }))
           setMessages(loadedMessages)
         }
@@ -169,20 +154,18 @@ function ChatPage() {
         setLoadingHistory(false)
       }
     }
-
     loadChatHistory()
   }, [sessionId])
 
-  // SEND NEW MESSAGE
+  // SEND NEW MESSAGE (with database selection)
   const sendMessage = async () => {
     if (!input.trim()) return
 
-    // Stop listening if active
     if (isListening) {
       recognitionRef.current.stop()
     }
 
-    const userMessage = { role: 'user', content: input }
+    const userMessage = { role: 'user', content: input, dbScope: selectedDb }
     setMessages(prev => [...prev, userMessage])
     setInput('')
     setLoading(true)
@@ -197,19 +180,17 @@ function ChatPage() {
         body: JSON.stringify({
           query: input,
           session_id: sessionId,
-          use_rag: true
+          use_rag: true,
+          db_scope: selectedDb  // ← NEW: tell backend which DB to search
         })
       })
 
       const data = await response.json()
       
-      // If this is a new session, save it
       if (!sessionId) {
         setSessionId(data.session_id)
         localStorage.setItem('lastSessionId', data.session_id)
         previousSessionRef.current = data.session_id
-        
-        // Trigger sidebar refresh by dispatching event
         window.dispatchEvent(new CustomEvent('newChatSession'))
       }
 
@@ -217,7 +198,8 @@ function ChatPage() {
         role: 'assistant',
         content: data.answer,
         sources: data.sources,
-        responseTime: data.response_time_ms
+        responseTime: data.response_time_ms,
+        dbScope: selectedDb
       }
 
       setMessages(prev => [...prev, assistantMessage])
@@ -225,7 +207,8 @@ function ChatPage() {
       console.error('Error:', error)
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: 'Sorry, there was an error. Please try again.'
+        content: 'Sorry, there was an error. Please try again.',
+        dbScope: selectedDb
       }])
     } finally {
       setLoading(false)
@@ -239,21 +222,19 @@ function ChatPage() {
     }
   }
 
-  // EDIT MESSAGE — Re-run updated user query with NEW edited text
+  // Edit message
   const saveEditedMessage = async () => {
     if (!editingText.trim()) return
 
-    // Store the edited text before we clear state
     const newQuery = editingText
     const editIdx = editingIndex
+    const dbScopeForEdit = messages[editIdx].dbScope || selectedDb
 
     setIsRegenerating(true)
     
-    // Update the user message with edited text
     const updated = [...messages]
-    updated[editIdx].content = newQuery  // Save edited message
+    updated[editIdx].content = newQuery
 
-    // Remove old assistant response to prepare for new one
     if (updated[editIdx + 1] && updated[editIdx + 1].role === 'assistant') {
       updated.splice(editIdx + 1, 1)
     }
@@ -263,7 +244,6 @@ function ChatPage() {
     setEditingText("")
 
     try {
-      // Re-run with the NEW EDITED query text
       const response = await fetch('http://localhost:8000/api/chat/query', {
         method: 'POST',
         headers: { 
@@ -271,20 +251,21 @@ function ChatPage() {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify({
-          query: newQuery,  // Using the edited text here!
+          query: newQuery,
           session_id: sessionId,
-          use_rag: true
+          use_rag: true,
+          db_scope: dbScopeForEdit  // Use original DB scope
         })
       })
 
       const data = await response.json()
 
-      // Add NEW assistant response based on edited query
       const newAssistantMessage = {
         role: "assistant",
         content: data.answer,
         sources: data.sources,
-        responseTime: data.response_time_ms
+        responseTime: data.response_time_ms,
+        dbScope: dbScopeForEdit
       }
 
       setMessages(prev => [...prev, newAssistantMessage])
@@ -292,7 +273,8 @@ function ChatPage() {
       console.error('Error regenerating response:', error)
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: 'Sorry, there was an error regenerating the response. Please try again.'
+        content: 'Sorry, there was an error regenerating the response. Please try again.',
+        dbScope: dbScopeForEdit
       }])
     } finally {
       setIsRegenerating(false)
@@ -304,31 +286,26 @@ function ChatPage() {
     setSessionId(null)
     localStorage.removeItem('lastSessionId')
     previousSessionRef.current = null
-    
-    // Trigger sidebar refresh
     window.dispatchEvent(new CustomEvent('newChatSession'))
   }
 
-  // Function to export chat as Markdown
   const exportChatAsMarkdown = () => {
     if (messages.length === 0) {
       alert('No messages to export!')
       return
     }
 
-    // Create markdown content
     let markdown = `# Chat Export\n\n`
     markdown += `**Exported on:** ${new Date().toLocaleString()}\n\n`
     markdown += `**Total Messages:** ${messages.length}\n\n`
     markdown += `---\n\n`
 
-    // Add each message
     messages.forEach((msg, index) => {
       const role = msg.role === 'user' ? '👤 User' : '🤖 Assistant'
-      markdown += `## ${role}\n\n`
+      const dbLabel = msg.dbScope === 'shared' ? ' (Shared DB)' : ' (Local DB)'
+      markdown += `## ${role}${msg.role === 'user' ? dbLabel : ''}\n\n`
       markdown += `${msg.content}\n\n`
       
-      // Add sources if available
       if (msg.sources && msg.sources.length > 0) {
         markdown += `**Sources:**\n`
         msg.sources.forEach(source => {
@@ -337,7 +314,6 @@ function ChatPage() {
         markdown += `\n`
       }
       
-      // Add response time if available
       if (msg.responseTime) {
         markdown += `*Response time: ${msg.responseTime}ms*\n\n`
       }
@@ -345,7 +321,6 @@ function ChatPage() {
       markdown += `---\n\n`
     })
 
-    // Create blob and download
     const blob = new Blob([markdown], { type: 'text/markdown' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -394,15 +369,26 @@ function ChatPage() {
             <Code size={64} />
             <h3>Start a conversation</h3>
             <p>Ask me anything about your company's code or documentation</p>
+            <p style={{ fontSize: '14px', color: '#888', marginTop: '12px' }}>
+              Choose between your local documents or shared team documents below
+            </p>
           </div>
         ) : null}
 
-        {/* RENDER MESSAGES */}
         {messages.map((msg, idx) => (
           <div key={idx} className={`message ${msg.role}`}>
-            <div className="message-content">
+            {/* DB Scope Badge */}
+            {msg.dbScope && (
+              <div className={`db-badge ${msg.dbScope}`}>
+                {msg.dbScope === 'shared' ? (
+                  <><Globe size={12} /> Shared</>
+                ) : (
+                  <><User size={12} /> Local</>
+                )}
+              </div>
+            )}
 
-              {/* If user is EDITING this message */}
+            <div className="message-content">
               {editingIndex === idx && msg.role === "user" ? (
                 <>
                   <textarea
@@ -411,7 +397,6 @@ function ChatPage() {
                     onChange={(e) => setEditingText(e.target.value)}
                     autoFocus
                   />
-
                   <div className="edit-buttons">
                     <button 
                       onClick={saveEditedMessage} 
@@ -442,7 +427,6 @@ function ChatPage() {
                 </>
               ) : (
                 <>
-                  {/* Normal Display */}
                   <ReactMarkdown
                     components={{
                       code({node, inline, className, children, ...props}) {
@@ -467,7 +451,6 @@ function ChatPage() {
                     {msg.content}
                   </ReactMarkdown>
 
-                  {/* EDIT BUTTON FOR USER MESSAGES */}
                   {msg.role === "user" && (
                     <button
                       className="inline-edit-btn"
@@ -482,7 +465,6 @@ function ChatPage() {
                 </>
               )}
 
-              {/* Sources */}
               {msg.sources && msg.sources.length > 0 && (
                 <div className="sources">
                   <FileText size={16} />
@@ -528,19 +510,38 @@ function ChatPage() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* INPUT AREA */}
+      {/* INPUT AREA WITH DATABASE SELECTOR */}
       <div className="input-container">
+        {/* Database Selector */}
+        <div className="db-selector">
+          <button
+            className={`db-option ${selectedDb === 'local' ? 'active' : ''}`}
+            onClick={() => setSelectedDb('local')}
+            title="Search your personal documents"
+          >
+            <User size={16} />
+            My Documents
+          </button>
+          <button
+            className={`db-option ${selectedDb === 'shared' ? 'active' : ''}`}
+            onClick={() => setSelectedDb('shared')}
+            title="Search shared team documents"
+          >
+            <Globe size={16} />
+            Shared Documents
+          </button>
+        </div>
+
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyPress={handleKeyPress}
-          placeholder={isListening ? "Listening... Speak now!" : "Ask a question or click the mic to speak..."}
+          placeholder={isListening ? "Listening... Speak now!" : `Ask a question about ${selectedDb === 'shared' ? 'shared team' : 'your personal'} documents...`}
           rows={3}
           disabled={loading}
           className={isListening ? 'listening' : ''}
         />
         
-        {/* Voice Input Button */}
         {speechSupported && (
           <button
             onClick={toggleVoiceInput}

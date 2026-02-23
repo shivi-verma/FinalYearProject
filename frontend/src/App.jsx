@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import ChatPage from './components/ChatPage'
 import DocumentsPage from './components/DocumentsPage'
+import SharedDocumentsPage from './components/SharedDocumentsPage'  // ← NEW IMPORT
 import AdminPage from './components/AdminPage'
 import LoginPage from './components/LoginPage'
 import DashboardPage from './components/DashboardPage'
@@ -95,8 +96,11 @@ function App() {
               }
             />
             
-            {/* Documents page */}
+            {/* Documents page (LOCAL) */}
             <Route path="/documents" element={<DocumentsPage />} />
+            
+            {/* Shared Documents page (NEW) */}
+            <Route path="/shared-documents" element={<SharedDocumentsPage />} />
             
             {/* Admin page */}
             <Route path="/admin" element={<AdminPage />} />

@@ -13,6 +13,7 @@ venv/
 env/
 ENV/
 backend/venv/
+backend/backend_venv
 *.egg-info/
 .pytest_cache/
 .coverage
@@ -26,6 +27,8 @@ databse.db
 code_assistant.db
 
 # Uploads and Vector DB
+shareduploads/
+data
 uploads/
 vectordb/
 *.pdf
@@ -69,3 +72,6 @@ Thumbs.db
 *.tmp
 *.temp
 .cache/
+
+#server folder
+backend/services/shared_rag_service.py

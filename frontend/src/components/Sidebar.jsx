@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { Home, MessageSquare, FileText, BarChart3, LogOut, Edit2, Trash2 } from 'lucide-react'
+import { Home, MessageSquare, FileText, BarChart3, LogOut, Edit2, Trash2, Globe } from 'lucide-react'
 
 function Sidebar({ user, onLogout, currentSessionId, onSessionSelect }) {
   const [chatSessions, setChatSessions] = useState([])
@@ -30,11 +30,10 @@ function Sidebar({ user, onLogout, currentSessionId, onSessionSelect }) {
     }
   }
 
-// Reload sessions when currentSessionId changes
-useEffect(() => {
-  loadChatSessions()
-}, [currentSessionId])
-
+  // Reload sessions when currentSessionId changes
+  useEffect(() => {
+    loadChatSessions()
+  }, [currentSessionId])
 
   const handleRename = async (sessionId) => {
     if (!editTitle.trim()) return
@@ -102,7 +101,7 @@ useEffect(() => {
 
       <nav className="sidebar-nav">
 
-        {/* Home Button Added */}
+        {/* Home Button */}
         <Link
           to="/"
           className={`nav-item ${location.pathname === '/' ? 'active' : ''}`}
@@ -172,12 +171,23 @@ useEffect(() => {
           </div>
         )}
 
+        {/* ── DOCUMENTS SECTION ── */}
+        {/* My Documents (Local/Private) */}
         <Link
           to="/documents"
           className={`nav-item ${location.pathname === '/documents' ? 'active' : ''}`}
         >
           <FileText size={20} />
-          <span>Documents</span>
+          <span>My Documents</span>
+        </Link>
+
+        {/* Shared Documents (NEW) */}
+        <Link
+          to="/shared-documents"
+          className={`nav-item ${location.pathname === '/shared-documents' ? 'active' : ''}`}
+        >
+          <Globe size={20} />
+          <span>Shared Documents</span>
         </Link>
 
         <Link
